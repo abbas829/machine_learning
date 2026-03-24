@@ -1,0 +1,26 @@
+# Partial Dependence Plots with sklearn
+# PDP shows average prediction as function of feature value
+top_features = ['MedInc', 'AveOccup', 'HouseAge']
+feature_indices = [feature_names.index(f) for f in top_features]
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+for idx, (feature, ax) in enumerate(zip(top_features, axes)):
+    PartialDependenceDisplay.from_estimator(
+        rf_model, X_train, features=[feature],
+        kind='average',              # 'average' = PDP, 'individual' = ICE, 'both' = both
+        ax=ax,
+        line_kw={'linewidth': 2, 'color': 'blue'}
+    )
+    ax.set_title(f'PDP: {feature}')
+    ax.grid(True, alpha=0.3)
+
+plt.suptitle('Partial Dependence Plots: Marginal Feature Effects', y=1.02)
+plt.tight_layout()
+plt.show()
+
+print("PDP Interpretation:")
+print("- Shows how prediction changes as feature changes (averaged over all samples)")
+print("- MedInc: Higher income → higher price (monotonic, as expected)")
+print("- AveOccup: More occupants → slightly lower price (crowding effect)")
+print("- HouseAge: Non-monotonic relationship (very old houses may be worth less)")

@@ -1,0 +1,14 @@
+## Learning Objectives
+
+By the end of this notebook, you will be able to:
+
+- **Understand additive feature attribution (SHAP)**: Game-theoretic approach to fairly distribute prediction contributions among features
+- **Compute SHAP values for tree & deep models**: Use TreeExplainer for XGBoost/LightGBM, KernelExplainer for any model, DeepExplainer for neural nets
+- **Interpret SHAP summary & dependence plots**: Read beeswarm plots, identify feature importance, and detect interactions
+- **Use LIME for local linear explanations**: Generate locally faithful explanations around individual predictions
+- **Generate partial dependence & ICE plots**: Visualize marginal feature effects while accounting for feature correlations
+- **Compare global vs local methods**: Know when to use which explanation technique for your use case
+- **Apply explanations to classification & regression**: Adapt methods for different prediction types and business contexts
+- **Debug model failures**: Use explanations to identify why models make specific errors
+- **Visualize feature interactions & monotonicity**: Detect when feature effects change based on other feature values
+- **Build trust through transparency**: Create explanation reports for stakeholders and regulatory compliance

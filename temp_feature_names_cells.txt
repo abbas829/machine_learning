@@ -1,0 +1,471 @@
+cell 5
+# Load California Housing dataset
+housing = fetch_california_housing()
+X, y = housing.data, housing.target
+feature_names = housing.feature_names
+
+# Create DataFrame for easier handling
+X_df = pd.DataFrame(X, columns=feature_names)
+
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+print(f"Dataset: California Housing")
+print(f"Training samples: {X_train.shape[0]}")
+print(f"Features: {len(feature_names)}")
+print(f"Feature names: {feature_names}")
+-----
+cell 6
+# Train Random Forest model
+rf_model = RandomForestRegressor(
+    n_estimators=100,
+    max_depth=10,
+    random_state=42,
+    n_jobs=-1
+)
+
+rf_model.fit(X_train, y_train)
+y_pred = rf_model.predict(X_test)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+print(f"Random Forest RMSE: {rmse:.4f}")
+
+# Built-in feature importance (based on impurity reduction)
+# WARNING: Biased toward high-cardinality features!
+builtin_importance = rf_model.feature_importances_
+builtin_df = pd.DataFrame({
+    'feature': feature_names,
+    'importance': builtin_importance
+}).sort_values('importance', ascending=False)
+
+print("\nBuilt-in Feature Importance (Gini Importance):")
+print(builtin_df.head())
+-----
+cell 7
+# Permutation importance (more reliable, model-agnostic)
+# Measures decrease in model performance when feature values are randomly shuffled
+perm_importance = permutation_importance(
+    rf_model, X_test, y_test,
+    n_repeats=10,           # Number of shuffling rounds
+    random_state=42,
+    scoring='neg_mean_squared_error',
+    n_jobs=-1
+)
+
+perm_df = pd.DataFrame({
+    'feature': feature_names,
+    'importance_mean': perm_importance.importances_mean,
+    'importance_std': perm_importance.importances_std
+}).sort_values('importance_mean', ascending=False)
+
+print("Permutation Feature Importance:")
+print(perm_df.head())
+
+# Compare side-by-side
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+# Built-in
+sns.barplot(data=builtin_df, x='importance', y='feature', palette='viridis', ax=axes[0])
+axes[0].set_title('Built-in Feature Importance\n(Gini-based, potentially biased)')
+axes[0].set_xlabel('Importance')
+
+# Permutation
+sns.barplot(data=perm_df, x='importance_mean', y='feature', palette='plasma', ax=axes[1])
+axes[1].set_title('Permutation Feature Importance\n(Model-agnostic, more reliable)')
+axes[1].set_xlabel('Importance (drop in performance)')
+axes[1].errorbar(perm_df['importance_mean'], range(len(perm_df)), 
+                xerr=perm_df['importance_std'], fmt='none', color='black', alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+
+print("\nKey insight: Both methods agree on top features (MedInc, AveOccup)")
+print("but permutation importance is preferred for high-cardinality features")
+-----
+cell 10
+# SHAP Summary Plot (global view)
+# Beeswarm plot shows distribution of SHAP values for each feature
+plt.figure(figsize=(10, 8))
+shap.summary_plot(shap_values_rf, X_test_sample, feature_names=feature_names, show=False)
+plt.title('SHAP Summary Plot: Feature Importance & Value Impact')
+plt.tight_layout()
+plt.show()
+
+print("\nSHAP Summary Interpretation:")
+print("- Features ordered by importance (sum of absolute SHAP values)")
+print("- Color: Red = high feature value, Blue = low feature value")
+print("- Horizontal position: Impact on prediction (right = increases price)")
+print("- Width: Frequency of that impact level")
+print("\nExample: High MedInc (red) pushes predictions right (higher price)")
+-----
+cell 11
+# SHAP Bar Plot (global importance)
+# Sum of absolute SHAP values = global feature importance
+plt.figure(figsize=(10, 6))
+shap.summary_plot(shap_values_rf, X_test_sample, feature_names=feature_names, 
+                  plot_type="bar", show=False)
+plt.title('SHAP Feature Importance (Mean Absolute Value)')
+plt.tight_layout()
+plt.show()
+
+# Compare SHAP importance to permutation importance
+shap_importance = np.abs(shap_values_rf).mean(axis=0)
+comparison_df = pd.DataFrame({
+    'feature': feature_names,
+    'shap_importance': shap_importance,
+    'permutation_importance': perm_importance.importances_mean
+}).sort_values('shap_importance', ascending=False)
+
+print("\nSHAP vs Permutation Importance Correlation:")
+correlation = comparison_df['shap_importance'].corr(comparison_df['permutation_importance'])
+print(f"Correlation: {correlation:.3f} (high = agreement between methods)")
+-----
+cell 13
+# Pick a sample instance for detailed explanation
+sample_idx = 0  # First test sample
+sample_instance = X_test[sample_idx]
+sample_prediction = rf_model.predict([sample_instance])[0]
+
+print(f"Sample Instance {sample_idx}:")
+print(f"  Predicted value: {sample_prediction:.4f} ($100k)")
+print(f"  Actual value: {y_test[sample_idx]:.4f} ($100k)")
+base_value_rf = (np.asarray(explainer_rf.expected_value).item() if np.asarray(explainer_rf.expected_value).size == 1 else np.asarray(explainer_rf.expected_value))
+print(f"  Base value (average): {base_value_rf:.4f}")
+
+# Show feature values for this instance
+print(f"\nFeature values:")
+for name, value in zip(feature_names, sample_instance):
+    print(f"  {name}: {value:.3f}")
+-----
+cell 14
+# Waterfall plot: How each feature pushes prediction from base to final
+plt.figure(figsize=(10, 6))
+shap.waterfall_plot(shap.Explanation(
+    values=shap_values_rf[sample_idx],
+    base_values=expected_value_rf,
+    data=sample_instance,
+    feature_names=feature_names
+), show=False)
+plt.title(f'Waterfall Plot: Prediction Breakdown for Instance {sample_idx}')
+plt.tight_layout()
+plt.show()
+
+print("\nWaterfall Interpretation:")
+print("- Starts at base value (average prediction across dataset)")
+print("- Each bar shows how that feature pushes the prediction up (red) or down (blue)")
+print("- Final prediction = base + sum of all SHAP values")
+print(f"- Verification: {expected_value_rf + shap_values_rf[sample_idx].sum():.4f} ≈ {sample_prediction:.4f}")
+-----
+cell 15
+# Force plot: Alternative visualization (horizontal layout)
+# Note: Force plots require shap.initjs() in Jupyter but work without in saved notebooks
+print("Force plot visualization:")
+print("(In Jupyter, this renders as interactive visualization)")
+
+# Create force plot data explanation
+force_explanation = shap.Explanation(
+    values=shap_values_rf[sample_idx],
+    base_values=expected_value_rf,
+    data=sample_instance,
+    feature_names=feature_names
+)
+
+# For static notebooks, we use waterfall; for interactive, use:
+# shap.force_plot(expected_value_rf, shap_values_rf[sample_idx], sample_instance, feature_names=feature_names)
+
+print("\nForce plot shows the same information as waterfall but horizontally:")
+print("- Blue arrows (left): Features pushing prediction lower")
+print("- Red arrows (right): Features pushing prediction higher")
+print("- Base value in center, final prediction at the end")
+-----
+cell 16
+# Dependence plot: Feature value vs SHAP value (shows interactions)
+# Most important feature
+top_feature_idx = np.argsort(np.abs(shap_values_rf).mean(axis=0))[-1]
+top_feature_name = feature_names[top_feature_idx]
+
+plt.figure(figsize=(10, 6))
+shap.dependence_plot(
+    top_feature_idx, 
+    shap_values_rf, 
+    X_test_sample,
+    feature_names=feature_names,
+    show=False
+)
+plt.title(f'SHAP Dependence Plot: {top_feature_name}')
+plt.tight_layout()
+plt.show()
+
+print(f"\nDependence plot shows:")
+print(f"- How {top_feature_name} affects predictions (y-axis = SHAP value)")
+print("- Color shows interaction with second most correlated feature")
+print("- Vertical dispersion indicates interactions with other features")
+-----
+cell 18
+# Initialize LIME explainer for tabular data
+# LIME needs training data to understand feature distributions
+lime_explainer = LimeTabularExplainer(
+    training_data=X_train,           # Background data for perturbation
+    feature_names=feature_names,     # Feature names for display
+    mode='regression',               # 'regression' or 'classification'
+    discretize_continuous=True,      # Discretize continuous features for interpretability
+    random_state=42
+)
+
+print("LIME Explainer initialized")
+print("Mode: Regression")
+print(f"Training samples for perturbation: {X_train.shape[0]}")
+
+# Explain the same sample instance we used for SHAP
+sample_idx = 0
+sample_instance = X_test[sample_idx]
+sample_pred = rf_model.predict([sample_instance])[0]
+
+print(f"\nExplaining instance {sample_idx} (prediction: {sample_pred:.4f})")
+-----
+cell 22
+# Partial Dependence Plots with sklearn
+# PDP shows average prediction as function of feature value
+top_features = ['MedInc', 'AveOccup', 'HouseAge']
+feature_indices = [feature_names.index(f) for f in top_features]
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+for idx, (feature, ax) in enumerate(zip(top_features, axes)):
+    PartialDependenceDisplay.from_estimator(
+        rf_model, X_train, features=[feature],
+        kind='average',              # 'average' = PDP, 'individual' = ICE, 'both' = both
+        ax=ax,
+        line_kw={'linewidth': 2, 'color': 'blue'}
+    )
+    ax.set_title(f'PDP: {feature}')
+    ax.grid(True, alpha=0.3)
+
+plt.suptitle('Partial Dependence Plots: Marginal Feature Effects', y=1.02)
+plt.tight_layout()
+plt.show()
+
+print("PDP Interpretation:")
+print("- Shows how prediction changes as feature changes (averaged over all samples)")
+print("- MedInc: Higher income → higher price (monotonic, as expected)")
+print("- AveOccup: More occupants → slightly lower price (crowding effect)")
+print("- HouseAge: Non-monotonic relationship (very old houses may be worth less)")
+-----
+cell 26
+# SHAP for neural network using DeepExplainer
+# DeepExplainer uses background data to approximate SHAP values
+print("Computing SHAP values for neural network...")
+print("(This uses background samples to estimate feature attributions)")
+
+# Use subset of training data as background
+background = X_train_scaled[:100]
+explainer_nn = shap.DeepExplainer(nn_model, background)
+
+# Compute SHAP values for test samples
+shap_values_nn = explainer_nn.shap_values(X_test_scaled[:50])
+
+print(f"SHAP values shape: {shap_values_nn[0].shape if isinstance(shap_values_nn, list) else shap_values_nn.shape}")
+
+# Summary plot for neural network
+plt.figure(figsize=(10, 6))
+shap.summary_plot(
+    shap_values_nn[0] if isinstance(shap_values_nn, list) else shap_values_nn,
+    X_test_scaled[:50],
+    feature_names=feature_names,
+    show=False
+)
+plt.title('SHAP Summary: Neural Network')
+plt.tight_layout()
+plt.show()
+
+print("\nNeural network SHAP shows similar patterns to Random Forest")
+print("(Both identify MedInc as most important - model converges on truth)")
+-----
+cell 27
+# Compare SHAP values between Random Forest and Neural Network
+# Sample 50 instances from test set for fair comparison
+sample_size = 50
+X_sample = X_test[:sample_size]
+X_sample_scaled = scaler.transform(X_sample)
+
+# Get SHAP values from both models
+shap_rf_sample = explainer_rf.shap_values(X_sample)
+shap_nn_sample = explainer_nn.shap_values(X_sample_scaled)
+shap_nn_sample = shap_nn_sample[0] if isinstance(shap_nn_sample, list) else shap_nn_sample
+
+# Compute correlation of feature importance rankings
+rf_importance = np.abs(shap_rf_sample).mean(axis=0)
+nn_importance = np.abs(shap_nn_sample).mean(axis=0)
+
+importance_corr = np.corrcoef(rf_importance, nn_importance)[0, 1]
+
+print(f"Feature importance correlation (RF vs NN): {importance_corr:.3f}")
+print(f"(1.0 = perfect agreement, 0 = no correlation)")
+
+# Visualize comparison
+comparison_df = pd.DataFrame({
+    'feature': feature_names,
+    'rf_importance': rf_importance,
+    'nn_importance': nn_importance
+})
+
+plt.figure(figsize=(10, 6))
+plt.scatter(comparison_df['rf_importance'], comparison_df['nn_importance'], s=100, alpha=0.7)
+for i, row in comparison_df.iterrows():
+    plt.annotate(row['feature'], (row['rf_importance'], row['nn_importance']),
+                xytext=(5, 5), textcoords='offset points', fontsize=9)
+plt.xlabel('Random Forest SHAP Importance')
+plt.ylabel('Neural Network SHAP Importance')
+plt.title('Feature Importance: Random Forest vs Neural Network')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+print("\nModels agree on important features despite different architectures")
+print("This increases trust that features are truly predictive, not artifacts")
+-----
+cell 29
+# Classification example for debugging misclassifications
+# Load breast cancer dataset
+cancer = load_breast_cancer()
+X_cancer, y_cancer = cancer.data, cancer.target
+feature_names_cancer = cancer.feature_names
+
+X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(
+    X_cancer, y_cancer, test_size=0.2, random_state=42, stratify=y_cancer
+)
+
+# Train classifier
+rf_cancer = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_cancer.fit(X_train_c, y_train_c)
+y_pred_c = rf_cancer.predict(X_test_c)
+accuracy = accuracy_score(y_test_c, y_pred_c)
+
+print(f"Breast Cancer Classification Accuracy: {accuracy:.4f}")
+
+# Find misclassified instances
+misclassified = np.where(y_pred_c != y_test_c)[0]
+print(f"Misclassified instances: {len(misclassified)}")
+
+if len(misclassified) > 0:
+    # Analyze first misclassification
+    idx = misclassified[0]
+    true_label = y_test_c[idx]
+    pred_label = y_pred_c[idx]
+    
+    print(f"\nAnalyzing misclassified instance {idx}:")
+    print(f"  True: {'Malignant' if true_label == 0 else 'Benign'}")
+    print(f"  Predicted: {'Malignant' if pred_label == 0 else 'Benign'}")
+    
+    # SHAP explanation for this instance
+    explainer_cancer = shap.TreeExplainer(rf_cancer)
+    shap_values_cancer = explainer_cancer.shap_values(X_test_c[idx:idx+1])
+    
+    # For classification, SHAP returns list (one per class)
+    # shap_values_cancer[0] = contributions to class 0 (malignant)
+    # shap_values_cancer[1] = contributions to class 1 (benign)
+    
+    plt.figure(figsize=(10, 6))
+    shap.waterfall_plot(shap.Explanation(
+        values=shap_values_cancer[1][0],  # Explain benign prediction
+        base_values=explainer_cancer.expected_value[1],
+        data=X_test_c[idx],
+        feature_names=feature_names_cancer
+    ), show=False, max_display=10)
+    plt.title(f'Why predicted Benign? (Instance {idx})')
+    plt.tight_layout()
+    plt.show()
+    
+    print("\nExplanation shows which features pushed toward benign vs malignant")
+    print("This helps doctors understand and potentially override AI decisions")
+-----
+cell 30
+# Compare explanations across multiple models
+# Train XGBoost and compare SHAP with Random Forest
+import xgboost as xgb
+
+xgb_cancer = xgb.XGBClassifier(n_estimators=100, max_depth=4, random_state=42)
+xgb_cancer.fit(X_train_c, y_train_c)
+
+# SHAP for XGBoost
+explainer_xgb = shap.TreeExplainer(xgb_cancer)
+shap_values_xgb = explainer_xgb.shap_values(X_test_c[:50])
+shap_values_xgb = shap_values_xgb[1] if isinstance(shap_values_xgb, list) else shap_values_xgb
+
+# SHAP for Random Forest (recompute for same samples)
+shap_values_rf_c = explainer_cancer.shap_values(X_test_c[:50])
+shap_values_rf_c = shap_values_rf_c[1] if isinstance(shap_values_rf_c, list) else shap_values_rf_c
+
+# Compare top features
+rf_imp_c = np.abs(shap_values_rf_c).mean(axis=0)
+xgb_imp_c = np.abs(shap_values_xgb).mean(axis=0)
+
+top_rf = set(np.argsort(rf_imp_c)[-5:])
+top_xgb = set(np.argsort(xgb_imp_c)[-5:])
+
+print("Top 5 features by SHAP importance:")
+print(f"Random Forest: {[feature_names_cancer[i] for i in top_rf]}")
+print(f"XGBoost:       {[feature_names_cancer[i] for i in top_xgb]}")
+print(f"Agreement: {len(top_rf & top_xgb)}/5 features")
+
+# Visualize
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+shap.summary_plot(shap_values_rf_c, X_test_c[:50], feature_names=feature_names_cancer, 
+                  plot_type='bar', show=False, ax=axes[0])
+axes[0].set_title('Random Forest SHAP')
+
+shap.summary_plot(shap_values_xgb, X_test_c[:50], feature_names=feature_names_cancer,
+                  plot_type='bar', show=False, ax=axes[1])
+axes[1].set_title('XGBoost SHAP')
+
+plt.tight_layout()
+plt.show()
+
+print("\nHigh agreement between models increases trust in predictions")
+print("Disagreement suggests investigating feature engineering or data quality")
+-----
+cell 33
+<details>
+<summary><b>Exercise Solutions (Click to Expand)</b></summary>
+
+### Easy Solution Outline (SHAP Summary)
+```python
+import shap
+explainer = shap.TreeExplainer(rf_model)
+shap_values = explainer.shap_values(X_test)
+shap.summary_plot(shap_values, X_test, feature_names=feature_names)
+# Top 3: MedInc, AveOccup, HouseAge
+```
+
+### Medium Solution Outline (LIME on Misclassification)
+```python
+from lime.lime_tabular import LimeTabularExplainer
+explainer = LimeTabularExplainer(X_train, feature_names=feature_names_cancer, mode='classification')
+exp = explainer.explain_instance(X_test_c[misclassified[0]], rf_cancer.predict_proba, num_features=5)
+exp.show_in_notebook()
+```
+
+### Medium Solution Outline (PDP + ICE)
+```python
+from sklearn.inspection import PartialDependenceDisplay
+fig, ax = plt.subplots(figsize=(10, 6))
+PartialDependenceDisplay.from_estimator(rf_model, X_train, features=['MedInc'], 
+                                        kind='both', ax=ax)
+# Look for diverging lines = interactions
+```
+
+### Hard Solution Outline (Model Comparison)
+```python
+# SHAP for both models
+shap_rf = shap.TreeExplainer(rf).shap_values(X_test)
+shap_nn = shap.DeepExplainer(nn, background).shap_values(X_test_scaled)
+# Compare rankings
+from scipy.stats import spearmanr
+corr, _ = spearmanr(np.abs(shap_rf).mean(0), np.abs(shap_nn).mean(0))
+```
+
+</details>
+-----

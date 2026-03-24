@@ -1,0 +1,35 @@
+# ICE (Individual Conditional Expectation) curves
+# Shows PDP for individual instances, revealing heterogeneity
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# ICE for MedInc
+partial_feature_indices = [feature_names.index('MedInc'), feature_names.index('AveOccup')]
+PartialDependenceDisplay.from_estimator(
+    rf_model, X_train, features=[partial_feature_indices[0]],
+    kind='both',                     # Show both PDP (thick line) and ICE (thin lines)
+    ax=axes[0],
+    line_kw={'linewidth': 0.5, 'alpha': 0.5},  # ICE lines
+    pd_line_kw={'linewidth': 3, 'color': 'red'}  # PDP line
+)
+axes[0].set_title('ICE + PDP: Median Income')
+axes[0].grid(True, alpha=0.3)
+
+# ICE for AveOccup
+PartialDependenceDisplay.from_estimator(
+    rf_model, X_train, features=[partial_feature_indices[1]],
+    kind='both',
+    ax=axes[1],
+    line_kw={'linewidth': 0.5, 'alpha': 0.5},
+    pd_line_kw={'linewidth': 3, 'color': 'red'}
+)
+axes[1].set_title('ICE + PDP: Average Occupancy')
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+print("\nICE Interpretation:")
+print("- Each thin line = one instance's prediction curve")
+print("- Thick red line = average (PDP)")
+print("- Diverging lines indicate feature interactions")
+print("- If all lines parallel → no interactions; crossing lines → strong interactions")

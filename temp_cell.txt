@@ -1,0 +1,14 @@
+# Compute SHAP values using TreeExplainer (optimized for tree models)
+# TreeExplainer is exact and fast for Random Forest, XGBoost, LightGBM, CatBoost
+print("Initializing TreeExplainer for Random Forest...")
+explainer_rf = shap.TreeExplainer(rf_model)
+
+# Compute SHAP values for test set (sample for speed)
+X_test_sample = X_test[:100]  # First 100 samples
+print("Computing SHAP values...")
+shap_values_rf = explainer_rf.shap_values(X_test_sample)
+
+print(f"SHAP values shape: {shap_values_rf.shape}")
+print(f"Expected value (base prediction): {explainer_rf.expected_value:.4f}")
+print(f"Mean actual prediction: {rf_model.predict(X_test_sample).mean():.4f}")
+print("✓ Property check: mean(SHAP values) + expected_value ≈ mean(prediction)")

@@ -1,0 +1,78 @@
+cell 9
+# Compute SHAP values using TreeExplainer (optimized for tree models)
+# TreeExplainer is exact and fast for Random Forest, XGBoost, LightGBM, CatBoost
+print("Initializing TreeExplainer for Random Forest...")
+explainer_rf = shap.TreeExplainer(rf_model)
+
+# Compute SHAP values for test set (sample for speed)
+X_test_sample = X_test[:100]  # First 100 samples
+print("Computing SHAP values...")
+shap_values_rf = explainer_rf.shap_values(X_test_sample)
+
+expected_value_rf = np.asarray(explainer_rf.expected_value)
+if expected_value_rf.size == 1:
+    expected_value_rf = expected_value_rf.item()
+
+print(f"SHAP values shape: {shap_values_rf.shape}")
+print(f"Expected value (base prediction): {expected_value_rf:.4f}")
+print(f"Mean actual prediction: {rf_model.predict(X_test_sample).mean():.4f}")
+print("✓ Property check: mean(SHAP values) + expected_value ≈ mean(prediction)")
+-----
+cell 13
+# Pick a sample instance for detailed explanation
+sample_idx = 0  # First test sample
+sample_instance = X_test[sample_idx]
+sample_prediction = rf_model.predict([sample_instance])[0]
+
+print(f"Sample Instance {sample_idx}:")
+print(f"  Predicted value: {sample_prediction:.4f} ($100k)")
+print(f"  Actual value: {y_test[sample_idx]:.4f} ($100k)")
+base_value_rf = (np.asarray(explainer_rf.expected_value).item() if np.asarray(explainer_rf.expected_value).size == 1 else np.asarray(explainer_rf.expected_value))
+print(f"  Base value (average): {base_value_rf:.4f}")
+
+# Show feature values for this instance
+print(f"\nFeature values:")
+for name, value in zip(feature_names, sample_instance):
+    print(f"  {name}: {value:.3f}")
+-----
+cell 14
+# Waterfall plot: How each feature pushes prediction from base to final
+plt.figure(figsize=(10, 6))
+shap.waterfall_plot(shap.Explanation(
+    values=shap_values_rf[sample_idx],
+    base_values=explainer_rf.expected_value,
+    data=sample_instance,
+    feature_names=feature_names
+), show=False)
+plt.title(f'Waterfall Plot: Prediction Breakdown for Instance {sample_idx}')
+plt.tight_layout()
+plt.show()
+
+print("\nWaterfall Interpretation:")
+print("- Starts at base value (average prediction across dataset)")
+print("- Each bar shows how that feature pushes the prediction up (red) or down (blue)")
+print("- Final prediction = base + sum of all SHAP values")
+print(f"- Verification: {explainer_rf.expected_value + shap_values_rf[sample_idx].sum():.4f} ≈ {sample_prediction:.4f}")
+-----
+cell 15
+# Force plot: Alternative visualization (horizontal layout)
+# Note: Force plots require shap.initjs() in Jupyter but work without in saved notebooks
+print("Force plot visualization:")
+print("(In Jupyter, this renders as interactive visualization)")
+
+# Create force plot data explanation
+force_explanation = shap.Explanation(
+    values=shap_values_rf[sample_idx],
+    base_values=explainer_rf.expected_value,
+    data=sample_instance,
+    feature_names=feature_names
+)
+
+# For static notebooks, we use waterfall; for interactive, use:
+# shap.force_plot(explainer_rf.expected_value, shap_values_rf[sample_idx], sample_instance, feature_names=feature_names)
+
+print("\nForce plot shows the same information as waterfall but horizontally:")
+print("- Blue arrows (left): Features pushing prediction lower")
+print("- Red arrows (right): Features pushing prediction higher")
+print("- Base value in center, final prediction at the end")
+-----

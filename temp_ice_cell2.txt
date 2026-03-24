@@ -1,0 +1,3 @@
+## 📊 5. Partial Dependence Plots (PDP) & ICE
+
+PDP shows the marginal effect of a feature on the predicted outcome, averaging over all other features. ICE (Individual Conditional Expectation) curves show this for individual instances, revealing heterogeneity.
